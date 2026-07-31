@@ -15,6 +15,7 @@
 - **Multiple Sub-Modes** — Tsundere, Mesugaki (bratty mode), Role Reversal, Lonely Cat proactive messaging
 - **Safety Boundaries** — Hard-coded interaction limits (L1-L3 allowed, L4-L5 blocked)
 - **Lonely Cat Mode** — Proactive messaging when inactive, with escalating emotional messages
+- **Token Cost Control** — Conservative scheduling guidance for Agent-backed proactive checks
 
 ---
 

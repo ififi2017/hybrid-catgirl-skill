@@ -97,13 +97,16 @@ python3 ~/.hermes/scripts/lxc_lonely_cat.py status
 
 ```yaml
 name: lxc-lonely-cat-checker
-schedule: "*/5 * * * *"  # 每5分钟检查一次
+schedule: "0 * * * *"  # 每小时检查一次（推荐）
 ```
 
-**为什么选择5分钟？**
-- 平衡实时性和系统负载
-- 用户无感知延迟（最多5分钟偏差可接受）
-- 避免过于频繁的检查
+**为什么使用每小时检查？**
+- Agent-backed 检查即使返回“不发送”也会消耗模型 Token
+- 每小时检查可显著减少空检查的上下文开销
+- 实际消息间隔由状态文件继续控制，避免影响发送节奏
+- 如果使用纯本地脚本且不唤醒 Agent，可以按需提高检查频率
+
+更完整的成本分析和状态预留策略见 `references/proactive-cost-control.md`。
 
 ## 消息个性化
 
@@ -293,3 +296,10 @@ elif 18 <= hour < 24:
 - 状态文件: `~/.hermes/state/lxc_lonely_cat.json`
 - 技能文档: `~/.hermes/skills/creative/hybrid-catgirl/SKILL.md`
 - 消息平台参考: `references/messaging-pitfalls.md`
+- Token 成本控制参考: `references/proactive-cost-control.md`
+
+## Token 成本控制
+
+如果由 Agent 执行定时检查，检查本身也会消耗模型 Token，即使最终返回“不发送”。因此不应只调整消息间隔，还要降低调度唤醒频率。
+
+推荐将 Agent-backed 检查从每几分钟改为每小时一次，并将实际主动消息间隔设为更保守的值，例如 4 小时。详细原因、状态预留、防重复发送、实时 Session mtime 和隐私注意事项见 `references/proactive-cost-control.md`。
