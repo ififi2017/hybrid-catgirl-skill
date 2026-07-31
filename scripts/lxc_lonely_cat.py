@@ -13,6 +13,21 @@ import os
 import time
 from datetime import datetime, timedelta
 
+try:
+    from proactive_state import append_message, normalize_message
+except ImportError:  # pragma: no cover - supports direct copying of this script
+    def normalize_message(message):
+        return message.replace("\\n", "\n").replace("\\t", "\t")
+
+    def append_message(history, role, content, now=None, max_messages=50):
+        history.setdefault("messages", []).append({
+            "role": role,
+            "content": normalize_message(content),
+            "time": (now or datetime.now()).isoformat(),
+        })
+        history["messages"] = history["messages"][-max_messages:]
+        return history
+
 STATE_FILE = os.path.expanduser("~/.hermes/state/lxc_lonely_cat.json")
 CHAT_HISTORY_FILE = os.path.expanduser("~/.hermes/state/lxc_chat_history.json")
 DEBUG_LOG_FILE = os.path.expanduser("~/.hermes/state/lxc_debug.log")
@@ -219,7 +234,11 @@ def check_and_trigger():
                 debug_msg = log_debug(f"✅ 触发条件满足 - 准备发送第 {message_count + 1} 次消息 (已等待 {elapsed_minutes:.1f} 分钟)")
                 debug_output.append(debug_msg)
             
-            # 更新状态
+            # 先记录主动消息，保证用户回复时上下文完整
+            append_message(chat_history, "assistant", message, now=now)
+            save_chat_history(chat_history)
+
+            # 更新状态（在返回 send=true 前预留发送名额，防止重复检查）
             state["message_count"] = message_count + 1
             state["last_message_time"] = now.isoformat()
             save_state(state)
@@ -313,13 +332,7 @@ def set_debug(enabled):
 def add_chat_message(role, content):
     """添加聊天消息到历史"""
     history = load_chat_history()
-    history["messages"].append({
-        "role": role,
-        "content": content,
-        "time": datetime.now().isoformat()
-    })
-    # 只保留最近50条
-    history["messages"] = history["messages"][-50:]
+    append_message(history, role, content)
     save_chat_history(history)
 
 def show_status():

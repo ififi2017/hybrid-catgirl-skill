@@ -38,6 +38,8 @@ cp -r hybrid-catgirl-skill ~/.hermes/skills/creative/hybrid-catgirl
 
 # Copy the lonely cat script
 cp hybrid-catgirl-skill/scripts/lxc_lonely_cat.py ~/.hermes/scripts/
+# Optional: generic helpers for custom proactive/reminder scripts
+cp hybrid-catgirl-skill/scripts/proactive_state.py ~/.hermes/scripts/
 ```
 
 Or use the Hermes skill management system:
@@ -135,7 +137,8 @@ hybrid-catgirl-skill/
 ├── templates/
 │   └── idle-reminder-template.py         # Reusable idle reminder template
 ├── scripts/
-│   └── lxc_lonely_cat.py                 # Lonely Cat state manager
+│   ├── lxc_lonely_cat.py                 # Lonely Cat state manager
+│   └── proactive_state.py                 # Generic state/history/activity helpers
 ├── README.md
 └── LICENSE
 ```

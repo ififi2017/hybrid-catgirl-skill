@@ -31,6 +31,8 @@ STATE_FILE = os.path.join(STATE_DIR, f"{CHARACTER_NAME}_idle.json")
 
 # DEBUG 日志路径
 DEBUG_LOG = os.path.join(STATE_DIR, f"{CHARACTER_NAME}_debug.log")
+CHAT_HISTORY_FILE = os.path.join(STATE_DIR, f"{CHARACTER_NAME}_chat_history.json")
+MAX_HISTORY_MESSAGES = 50
 
 # 是否默认开启 DEBUG
 DEBUG_DEFAULT = False
@@ -103,6 +105,33 @@ def save_state(state):
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f, indent=2)
 
+def load_chat_history():
+    """加载角色聊天历史，不存在时返回空历史。"""
+    ensure_dir()
+    if os.path.exists(CHAT_HISTORY_FILE):
+        with open(CHAT_HISTORY_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {"messages": []}
+
+def save_chat_history(history):
+    """保存聊天历史。"""
+    ensure_dir()
+    with open(CHAT_HISTORY_FILE, 'w', encoding='utf-8') as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
+
+def normalize_message(message):
+    """将命令行传入的转义换行/制表符还原为实际字符。"""
+    return message.replace("\\n", "\n").replace("\\t", "\t")
+
+def append_message(history, role, content):
+    """追加消息并限制历史长度，避免上下文文件无限增长。"""
+    history.setdefault("messages", []).append({
+        "role": role,
+        "content": normalize_message(content),
+        "time": datetime.now().isoformat()
+    })
+    history["messages"] = history["messages"][-MAX_HISTORY_MESSAGES:]
+
 def get_interval(count):
     """获取第 count 次的间隔"""
     if count < len(REMINDER_INTERVALS):
@@ -142,7 +171,12 @@ def check():
     if elapsed >= interval:
         message = generate_message(count, {})
         
-        # 更新状态
+        # 先记录主动消息，确保用户回复时上下文完整
+        history = load_chat_history()
+        append_message(history, "assistant", message)
+        save_chat_history(history)
+
+        # 更新状态（在返回结果前预留提醒名额，防止重复检查）
         state["reminder_count"] = count + 1
         save_state(state)
         
@@ -240,6 +274,13 @@ if __name__ == "__main__":
         set_mode("inactive")
     elif cmd == "interact":
         record_interaction()
+    elif cmd == "addmsg":
+        if len(sys.argv) < 4:
+            print("用法: python idle-reminder-template.py addmsg <role> <content>")
+            sys.exit(1)
+        history = load_chat_history()
+        append_message(history, sys.argv[2], sys.argv[3])
+        save_chat_history(history)
     elif cmd == "debug":
         enabled = sys.argv[2] == "on" if len(sys.argv) > 2 else True
         set_debug(enabled)

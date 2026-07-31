@@ -100,6 +100,27 @@ When DEBUG mode is enabled, the script outputs DEBUG lines followed by JSON:
 - Parse by splitting on newlines and finding the JSON object (starts with `{`)
 - The `debug_messages` array contains the same DEBUG lines for easy output
 
+### General Reliability Fixes
+
+The proactive path should apply these rules regardless of the messaging platform:
+
+1. **Reserve state before returning a send decision**. Update the counter and next-send timestamp before an Agent or separate sender handles the message. This prevents duplicate sends when checks overlap.
+2. **Record the proactive message in chat history immediately**. Otherwise the next user reply lacks the message that prompted it.
+3. **Bound chat history**. Keep a fixed number of recent entries so the local context file cannot grow without limit.
+4. **Normalize escaped formatting**. Convert command-line `\\n` and `\\t` to real newlines and tabs before sending.
+
+The repository's `scripts/proactive_state.py` provides dependency-free helpers for these operations:
+
+```python
+from proactive_state import append_message, normalize_message, reserve_slot
+
+state = reserve_slot(state, interval_minutes=240)
+history = append_message(history, "assistant", message)
+message = normalize_message(message)
+```
+
+For Hermes gateway activity, prefer the newest non-cron `session_*.json` mtime and fall back to non-cron `.jsonl` files when the live JSON session is unavailable. See `proactive_state.latest_user_activity()`.
+
 ### Script Interface Reference
 
 ```bash

@@ -297,6 +297,7 @@ elif 18 <= hour < 24:
 - 技能文档: `~/.hermes/skills/creative/hybrid-catgirl/SKILL.md`
 - 消息平台参考: `references/messaging-pitfalls.md`
 - Token 成本控制参考: `references/proactive-cost-control.md`
+- 通用状态辅助函数: `scripts/proactive_state.py`
 
 ## Token 成本控制
 
