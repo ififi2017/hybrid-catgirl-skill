@@ -21,32 +21,54 @@
 
 ## 📦 Installation
 
-### Prerequisites
+### Preferred method: ask your Agent to install the repository
 
-- [Hermes Agent](https://github.com/nousresearch/hermes-agent) installed and configured
+If you use Hermes Agent or another Agent product that can install Skills, send it this request:
 
-### Install the Skill
+> Please install this open-source Skill: <https://github.com/ififi2017/hybrid-catgirl-skill>
+>
+> First read `README.md`, `README_EN.md`, `SKILL.md`, and the relevant files under `references/`. Use your native Skill installation mechanism, then tell me where it was installed and verify that the Skill can be loaded.
 
-Copy the skill files to your Hermes skills directory:
+You can also send the repository URL directly:
+
+```text
+https://github.com/ififi2017/hybrid-catgirl-skill
+```
+
+Let the Agent handle repository inspection, file copying, and any required configuration. Installation commands differ between Agent products, so follow the commands supported by your Agent.
+
+### Manual installation for Hermes Agent
+
+Make sure [Hermes Agent](https://github.com/nousresearch/hermes-agent) is installed and configured.
 
 ```bash
-# Clone the repo
 git clone https://github.com/ififi2017/hybrid-catgirl-skill.git
 
-# Copy to Hermes skills directory
-cp -r hybrid-catgirl-skill ~/.hermes/skills/creative/hybrid-catgirl
+# Copy the Skill files
+mkdir -p ~/.hermes/skills/creative/hybrid-catgirl
+cp -r hybrid-catgirl-skill/* ~/.hermes/skills/creative/hybrid-catgirl/
 
-# Copy the lonely cat script
+# Install the Lonely Cat state script
 cp hybrid-catgirl-skill/scripts/lxc_lonely_cat.py ~/.hermes/scripts/
+
 # Optional: generic helpers for custom proactive/reminder scripts
 cp hybrid-catgirl-skill/scripts/proactive_state.py ~/.hermes/scripts/
 ```
 
-Or use the Hermes skill management system:
+After installation, ask Hermes to load `SKILL.md` (for example, with `/skill hybrid-catgirl` or `hermes -s hybrid-catgirl`). Proactive messaging also requires platform-specific permissions and a scheduler; the Skill itself cannot grant messaging access.
+
+### Hermes Skill management command
+
+Hermes' registry-oriented command is useful when the Skill is already available through a registry or when you have a direct Skill file URL:
 
 ```bash
-# If you have the skill file locally
-hermes skill install ./hybrid-catgirl-skill
+hermes skills install <skill-id-or-direct-SKILL.md-url>
+```
+
+Because this repository also contains references and helper scripts, cloning the repository and copying the complete directory is the recommended Hermes installation path for this project. If your Hermes version supports installing a local directory directly, you can also try:
+
+```bash
+hermes skills install ./hybrid-catgirl-skill
 ```
 
 ---
