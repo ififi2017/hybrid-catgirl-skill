@@ -91,6 +91,9 @@ python3 ~/.hermes/scripts/lxc_lonely_cat.py debug on|off
 
 # 查看状态
 python3 ~/.hermes/scripts/lxc_lonely_cat.py status
+
+# 设置主动消息的语言（与 SKILL.md 的语言系统一致；zh-CN 可带方言）
+python3 ~/.hermes/scripts/lxc_lonely_cat.py lang <zh-CN|zh-TW|zh-HK|ja|en|ko> [henan|beijing|sichuan|dongbei|tianjin|putong]
 ```
 
 ### Cronjob 配置
@@ -304,3 +307,11 @@ elif 18 <= hour < 24:
 如果由 Agent 执行定时检查，检查本身也会消耗模型 Token，即使最终返回“不发送”。因此不应只调整消息间隔，还要降低调度唤醒频率。
 
 推荐将 Agent-backed 检查从每几分钟改为每小时一次，并将实际主动消息间隔设为更保守的值，例如 4 小时。详细原因、状态预留、防重复发送、实时 Session mtime 和隐私注意事项见 `references/proactive-cost-control.md`。
+
+## 多语言
+
+- 状态文件新增 `lang`（默认 `zh-CN`）和 `dialect`（默认 `henan`，仅 zh-CN 使用）。没有这两个字段的旧状态文件按河南话处理，无需迁移。
+- 主人切换语言或方言时，Agent 同时运行 `lang <code> [dialect]`，主动消息就会换成对应语言。
+- 五个阶段的消息池在 `scripts/lxc_lonely_cat.py` 的 `MESSAGES` 里；个性化变体（刚被摸过、刚被逗过）在 `PERSONAL` 里。
+- 主动消息一律是简洁模式的一句话，不带旁白、内心 OS、状态栏和记忆锚点。
+
