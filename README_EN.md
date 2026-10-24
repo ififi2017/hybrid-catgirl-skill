@@ -49,11 +49,8 @@ git clone https://github.com/ififi2017/hybrid-catgirl-skill.git
 mkdir -p ~/.hermes/skills/creative/hybrid-catgirl
 cp -r hybrid-catgirl-skill/* ~/.hermes/skills/creative/hybrid-catgirl/
 
-# Install the Lonely Cat state script
-cp hybrid-catgirl-skill/scripts/lxc_lonely_cat.py ~/.hermes/scripts/
-
-# Optional: generic helpers for custom proactive/reminder scripts
-cp hybrid-catgirl-skill/scripts/proactive_state.py ~/.hermes/scripts/
+# Install the Lonely Cat scripts (state manager, companion-mode material, two cron entry points, helpers)
+cp hybrid-catgirl-skill/scripts/*.py ~/.hermes/scripts/
 ```
 
 After installation, ask Hermes to load `SKILL.md` (for example, with `/skill hybrid-catgirl` or `hermes -s hybrid-catgirl`). Proactive messaging also requires platform-specific permissions and a scheduler; the Skill itself cannot grant messaging access.
@@ -209,6 +206,9 @@ hybrid-catgirl-skill/
 │   └── idle-reminder-template.py         # Reusable idle reminder template
 ├── scripts/
 │   ├── lxc_lonely_cat.py                 # Lonely Cat state manager
+│   ├── proactive_brain.py                # Companion mode: stages, topic rotation, memory hooks, calendar
+│   ├── lonely_cat_short.py               # Cron entry: short-range stage (no Agent wake-up)
+│   ├── lonely_cat_gate.py                # Cron entry: companion-mode gate
 │   └── proactive_state.py                 # Generic state/history/activity helpers
 ├── README.md
 └── LICENSE
@@ -252,7 +252,9 @@ When the catgirl mode is active but the user goes silent, 猫猫 proactively sen
 | 40 min | 4th | Heartbroken but hopeful |
 | 50 min | 5th | Final attempt, accepting fate |
 
-After the 5th message, 猫猫 stops and waits for the user to return.
+If the user still hasn't replied after the 5th message, **companion mode** takes over: the Agent writes each message from material prepared by `scripts/proactive_brain.py` — a rotating topic (猫猫's own day, the weather, a small question, a fun fact, a one-line game…), occasionally a small detail about the user's life from Hermes memory, and the last few proactive messages so nothing repeats. The longer the silence, the shorter and lighter the messages and the longer the gaps (4 hours up to a day); after 6 unanswered messages 猫猫 waits quietly, and any reply resets everything. Technical notes and intimate details in memory are filtered out and never appear in proactive messages.
+
+The scheduler only wakes the Agent when a message is actually due (a token-free no-agent job for the short-range stage, a read-only gate for companion mode); see [`references/lonely-cat-implementation.md`](references/lonely-cat-implementation.md#cronjob-配置) for the cron setup.
 
 ### State Management
 

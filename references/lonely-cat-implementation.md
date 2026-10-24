@@ -53,7 +53,11 @@
 │   └── references/
 │       └── lonely-cat-implementation.md  # 本文档
 ├── scripts/
-│   └── lxc_lonely_cat.py           # 状态管理脚本
+│   ├── lxc_lonely_cat.py           # 状态管理脚本
+│   ├── proactive_brain.py          # 陪伴模式素材：阶段、话题、记忆钩子、日历
+│   ├── proactive_state.py          # 通用小工具
+│   ├── lonely_cat_short.py         # cron 入口：短程阶段（no-agent）
+│   └── lonely_cat_gate.py          # cron 入口：陪伴模式闸门
 └── state/
     ├── lxc_lonely_cat.json         # 运行状态
     ├── lxc_chat_history.json       # 聊天记录（用于个性化消息）
@@ -83,8 +87,13 @@ python3 ~/.hermes/scripts/lxc_lonely_cat.py mode <normal|catgirl> <platform> [ch
 # 记录用户互动（重置计时器）
 python3 ~/.hermes/scripts/lxc_lonely_cat.py interact <platform> [chat_id]
 
-# 检查是否应该发送消息（cronjob 调用）
+# 检查是否应该发送消息（短程阶段；cron 用 lonely_cat_short.py 调它）
 python3 ~/.hermes/scripts/lxc_lonely_cat.py check
+
+# 陪伴模式：闸门 / 给 Agent 的素材 / 发送成功后记账
+python3 ~/.hermes/scripts/lxc_lonely_cat.py gate
+python3 ~/.hermes/scripts/lxc_lonely_cat.py context
+python3 ~/.hermes/scripts/lxc_lonely_cat.py sent "<message>"
 
 # DEBUG 开关
 python3 ~/.hermes/scripts/lxc_lonely_cat.py debug on|off
@@ -98,18 +107,51 @@ python3 ~/.hermes/scripts/lxc_lonely_cat.py lang <zh-CN|zh-TW|zh-HK|ja|en|ko> [h
 
 ### Cronjob 配置
 
-```yaml
-name: lxc-lonely-cat-checker
-schedule: "0 * * * *"  # 每小时检查一次（推荐）
+两个任务都用 Hermes 的“脚本前置”能力，**不需要发消息的时候完全不唤醒 Agent**：
+
+```bash
+# 1) 短程阶段（10–50 分钟模板消息）：no-agent，脚本到点时只输出消息正文，调度器原样投递；
+#    没到点不输出 = 静默。不耗 Token，可以每 5 分钟跑一次。
+hermes cron create "every 5m" --no-agent --script lonely_cat_short.py \
+  --deliver <platform>:<chat_id> --name lonely-cat-short
+
+# 2) 陪伴模式（短程 5 条发完后仍没回复，由 Agent 写消息）：闸门脚本判断不需要发时输出
+#    {"wakeAgent": false}，调度器跳过 Agent；需要发时 Agent 按提示词模板执行。
+hermes cron create "0 * * * *" --script lonely_cat_gate.py \
+  --prompt "$(cat ~/.hermes/skills/creative/hybrid-catgirl/templates/proactive-message.prompt.md)" \
+  --deliver local --name lonely-cat-companion
 ```
 
-**为什么使用每小时检查？**
-- Agent-backed 检查即使返回“不发送”也会消耗模型 Token
-- 每小时检查可显著减少空检查的上下文开销
-- 实际消息间隔由状态文件继续控制，避免影响发送节奏
-- 如果使用纯本地脚本且不唤醒 Agent，可以按需提高检查频率
+`--script` 只接受 `~/.hermes/scripts/` 下的文件名，所以要把 `scripts/` 里的 `lxc_lonely_cat.py`、`proactive_brain.py`、`proactive_state.py`、`lonely_cat_short.py`、`lonely_cat_gate.py` 一起复制过去。
 
-更完整的成本分析和状态预留策略见 `references/proactive-cost-control.md`。
+更完整的成本分析见 `references/proactive-cost-control.md`。
+
+## 陪伴模式：主人长时间没回复
+
+短程 5 条发完、主人仍没回复时，模板消息会越来越重复（只能围着最后一段聊天撒娇）。陪伴模式改由 Agent 写消息，素材由 `scripts/proactive_brain.py` 准备，目标是“像一个在过自己日子、也惦记着对方的人”：
+
+| 连续未回复 | 阶段 | 长度上限 | 发出后间隔 | 语气 |
+|---|---|---|---|---|
+| 0 | 想你了 | 120 字 | 4 小时 | 接上最近聊过的事或记忆里的细节 |
+| 1 | 换个话头 | 100 字 | 6 小时 | 不再追着旧话题，换成自己的小事、问个小问题 |
+| 2 | 自己找乐子 | 80 字 | 8 小时 | 讲自己做的一件小事，不追问为什么不回 |
+| 3 | 小声报平安 | 60 字 | 12 小时 | 很短，不撒娇不抱怨 |
+| 4 | 安静陪着 | 40 字 | 24 小时 | 一天一句，不要求回复 |
+| 5 | 最后留言 | 50 字 | — | 说一声先不打扰，等主人忙完 |
+
+连续 6 条没回就停，主人任意回复（`interact`）即全部重置、回到短程阶段。夜间 23:00–08:00 不发。
+
+每次 `context` 给 Agent 的素材：
+
+- **`topic_seed`**：从 11 个话题里轮换（猫猫的日常小事、天气、吃饭、起来活动、小问题、冷知识、一句话小游戏、记忆回调、周末、早安、晚安），按时段和工作日 / 周末筛选，避开最近 4 次用过的。
+- **`memory_hooks`**：从 Hermes 记忆（`USER.md` / `MEMORY.md`）里挑 1–2 条主人的生活小事，自动过滤技术配置、凭据线索、扮演规则和亲密细节；最近两条消息用过的不再挑。记忆越丰富，话头越多。
+- **`calendar`**：日期、星期、季节、时段、今天或明天的节日。
+- **`recent_proactive_messages`**：最近 6 条主动消息，模型不能重复它们的开头、意象和话题。
+- **`recent_chat_context`**：只在前两个阶段、且最后一次真实聊天在 48 小时内时提供，避免几天后还反复提同一件事。
+
+记账时机：`context` 只占一个 50 分钟的“写消息中”锁，**不预扣发送名额**；Agent 发送成功后调用 `sent` 才计入历史并排下一次时间。发送失败时锁过期，下一小时自动重试，不会白白占掉一条。
+
+最后一次真实互动时间取 `interact` 记录的时间和 Hermes 会话库（`state.db` 里该聊天的 `last_activity_at`，只读）中较新的一个。
 
 ## 消息个性化
 
@@ -301,12 +343,12 @@ elif 18 <= hour < 24:
 - 消息平台参考: `references/messaging-pitfalls.md`
 - Token 成本控制参考: `references/proactive-cost-control.md`
 - 通用状态辅助函数: `scripts/proactive_state.py`
+- 陪伴模式素材: `scripts/proactive_brain.py`
+- 陪伴模式提示词: `templates/proactive-message.prompt.md`
 
 ## Token 成本控制
 
-如果由 Agent 执行定时检查，检查本身也会消耗模型 Token，即使最终返回“不发送”。因此不应只调整消息间隔，还要降低调度唤醒频率。
-
-推荐将 Agent-backed 检查从每几分钟改为每小时一次，并将实际主动消息间隔设为更保守的值，例如 4 小时。详细原因、状态预留、防重复发送、实时 Session mtime 和隐私注意事项见 `references/proactive-cost-control.md`。
+Agent 执行的定时检查即使最终“不发送”也会消耗模型 Token（每次唤醒都要加载系统提示、Skill、记忆）。所以短程阶段用 no-agent 脚本任务，陪伴模式用只读闸门脚本，只有真的要写消息时才唤醒 Agent。详见 `references/proactive-cost-control.md`。
 
 ## 多语言
 

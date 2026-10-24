@@ -10,8 +10,13 @@
 
 import json
 import os
+import sqlite3
+import sys
 import time
 from datetime import datetime, timedelta
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import proactive_brain as brain  # noqa: E402
 
 try:
     from proactive_state import append_message, normalize_message
@@ -460,12 +465,123 @@ def check_and_trigger():
         return {"send": False, "debug_messages": debug_output}
     return None
 
+# ── 陪伴模式 ────────────────────────────────────────────────────────────
+# 短程 5 条（10–50 分钟）发完后主人仍没回复：改由 Agent 写长间隔、带记忆和话题轮换的消息。
+# 节奏、阶段和素材见 proactive_brain.py；cron 配置见 references/lonely-cat-implementation.md。
+QUIET_START, QUIET_END = 23, 8     # 夜间不发（本地时间）
+FIRST_COMPANION_HOURS = 4          # 短程最后一条之后，至少隔这么久才开始陪伴模式
+PENDING_MINUTES = 50               # context 给出素材后，这段时间内不重复触发
+HERMES_STATE_DB = os.path.join(os.environ.get("HERMES_HOME", os.path.expanduser("~/.hermes")), "state.db")
+
+
+def hermes_last_activity(chat_id):
+    """从 Hermes 会话库只读查询这个聊天最后一次真实活动；查不到时返回 None。"""
+    if not chat_id or not os.path.exists(HERMES_STATE_DB):
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{HERMES_STATE_DB}?mode=ro", uri=True, timeout=1)
+        row = conn.execute(
+            "SELECT MAX(last_activity_at) FROM sessions WHERE chat_id = ? AND source NOT LIKE 'cron%'",
+            (chat_id,)).fetchone()
+        conn.close()
+        return datetime.fromtimestamp(row[0]) if row and row[0] else None
+    except sqlite3.Error:
+        return None
+
+
+def last_user_activity(state):
+    times = [t for t in (
+        datetime.fromisoformat(state["last_interaction_time"]) if state.get("last_interaction_time") else None,
+        hermes_last_activity(state.get("target_chat")),
+    ) if t]
+    return max(times) if times else None
+
+
+def companion_precheck(state, now):
+    """只读判断陪伴模式这次要不要发；不发时返回原因 dict，可以发时返回 None。"""
+    if state.get("mode") != "catgirl":
+        return {"reason": "not_catgirl_mode"}
+    if state.get("message_count", 0) < 5:
+        return {"reason": "short_range_active"}  # 10–50 分钟的短程阶段由 check 负责
+    if now.hour >= QUIET_START or now.hour < QUIET_END:
+        return {"reason": "quiet_hours"}
+
+    next_time = state.get("companion_next_time")
+    if not next_time and state.get("last_message_time"):
+        next_time = (datetime.fromisoformat(state["last_message_time"])
+                     + timedelta(hours=FIRST_COMPANION_HOURS)).isoformat()
+    if next_time and now < datetime.fromisoformat(next_time):
+        return {"reason": "not_yet", "next_time": next_time}
+
+    pending_until = (state.get("companion_pending") or {}).get("until")
+    if pending_until and now < datetime.fromisoformat(pending_until):
+        return {"reason": "pending"}
+
+    streak = brain.unanswered_streak(state.get("companion_history", []), last_user_activity(state))
+    if streak >= brain.STOP_AFTER:
+        return {"reason": "waiting_for_reply", "unanswered_streak": streak}
+    return None
+
+
+def companion_context():
+    """给 Agent 写陪伴消息的素材；可以发时占一个写消息锁（不动计数，send 成功后才算数）。"""
+    state = load_state()
+    now = datetime.now()
+    skip = companion_precheck(state, now)
+    if skip:
+        return {"send": False, **skip}
+
+    last_activity = last_user_activity(state)
+    ctx = brain.build_context(state.get("companion_history", []), last_activity, now)
+    if ctx is None:
+        return {"send": False, "reason": "waiting_for_reply"}
+    memory_ids = ctx.pop("_memory_ids")
+
+    # 聊天记录只在前两个阶段、且最后一次真实聊天在 48 小时内时提供，避免反复翻旧账
+    fresh_chat = last_activity is not None and now - last_activity <= timedelta(hours=48)
+    recent_chat = load_chat_history().get("messages", [])[-6:] if ctx.pop("use_recent_chat") and fresh_chat else []
+
+    state["companion_pending"] = {"until": (now + timedelta(minutes=PENDING_MINUTES)).isoformat(),
+                                  "topic": ctx["topic_seed"]["id"], "memory_ids": memory_ids}
+    save_state(state)
+    return {
+        "send": True,
+        **ctx,
+        "language": state.get("lang") or "zh-CN",
+        "dialect": state.get("dialect") if (state.get("lang") or "zh-CN") == "zh-CN" else None,
+        "target_platform": state.get("target_platform"),
+        "target_chat": state.get("target_chat"),
+        "recent_chat_context": [{"role": m["role"], "content": m["content"][:200]} for m in recent_chat],
+    }
+
+
+def companion_sent(message):
+    """Agent 发送成功后调用：记入历史、按未回复条数退避下次时间、释放写消息锁。"""
+    state = load_state()
+    now = datetime.now()
+    message = normalize_message(message)
+    history = brain.record_sent(state.get("companion_history", []), message,
+                                state.get("companion_pending"), now)
+    streak = brain.unanswered_streak(history, last_user_activity(state))
+    state["companion_history"] = history
+    state["companion_pending"] = None
+    state["companion_next_time"] = (now + brain.next_interval(streak)).isoformat()
+    save_state(state)
+
+    chat_history = load_chat_history()
+    append_message(chat_history, "assistant", message, now=now)
+    save_chat_history(chat_history)
+    print(f"已记录：连续未回复 {streak} 条，下次不早于 {state['companion_next_time'][:16]}")
+
+
 def record_interaction(platform=None, chat_id=None):
     """记录用户互动，重置计数"""
     state = load_state()
     old_count = state.get("message_count", 0)
     state["last_interaction_time"] = datetime.now().isoformat()
     state["message_count"] = 0  # 重置消息计数
+    state["companion_next_time"] = None  # 陪伴模式从头计（未回复条数按最后互动时间自动归零）
+    state["companion_pending"] = None
     state["target_platform"] = platform
     state["target_chat"] = chat_id
     save_state(state)
@@ -562,12 +678,13 @@ def show_status():
     print("===========================")
 
 if __name__ == "__main__":
-    import sys
-    
     if len(sys.argv) < 2:
         print("用法: python lxc_lonely_cat.py <command> [args...]")
         print("命令:")
-        print("  check              - 检查是否应该发送消息")
+        print("  check              - 检查是否应该发送消息（短程 10–50 分钟，模板消息）")
+        print("  gate               - 陪伴模式 cron 闸门（只读；不需要发时输出 wakeAgent=false）")
+        print("  context            - 陪伴模式：输出给 Agent 写消息的素材 JSON")
+        print("  sent <message>     - 陪伴模式：消息发送成功后记账")
         print("  interact <platform> [chat_id] - 记录互动")
         print("  mode <normal|catgirl> <platform> [chat_id] - 设置模式")
         print("  addmsg <role> <content> - 添加聊天记录")
@@ -591,6 +708,20 @@ if __name__ == "__main__":
                 print(json.dumps(result, ensure_ascii=False))
         else:
             print("{}")
+    elif cmd == "gate":
+        skip = companion_precheck(load_state(), datetime.now())
+        if skip:
+            print(json.dumps({"precheck": skip}, ensure_ascii=False))
+            print(json.dumps({"wakeAgent": False}))
+        else:
+            print(json.dumps({"precheck": "due"}))
+    elif cmd == "context":
+        print(json.dumps(companion_context(), ensure_ascii=False, indent=2))
+    elif cmd == "sent":
+        if len(sys.argv) < 3:
+            print("用法: sent <message>")
+            sys.exit(1)
+        companion_sent(sys.argv[2])
     elif cmd == "interact":
         platform = sys.argv[2] if len(sys.argv) > 2 else None
         chat_id = sys.argv[3] if len(sys.argv) > 3 else None
