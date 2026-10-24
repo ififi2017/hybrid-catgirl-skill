@@ -51,11 +51,8 @@ git clone https://github.com/ififi2017/hybrid-catgirl-skill.git
 mkdir -p ~/.hermes/skills/creative/hybrid-catgirl
 cp -r hybrid-catgirl-skill/* ~/.hermes/skills/creative/hybrid-catgirl/
 
-# 安装寂寞小猫状态脚本
-cp hybrid-catgirl-skill/scripts/lxc_lonely_cat.py ~/.hermes/scripts/
-
-# 可选：通用主动提醒状态/历史辅助脚本
-cp hybrid-catgirl-skill/scripts/proactive_state.py ~/.hermes/scripts/
+# 安装寂寞小猫脚本（状态管理、陪伴模式素材、两个 cron 入口和通用辅助函数）
+cp hybrid-catgirl-skill/scripts/*.py ~/.hermes/scripts/
 ```
 
 如果你的 Hermes Agent 版本支持 Skill 管理命令，也可以尝试：
@@ -213,6 +210,9 @@ hybrid-catgirl-skill/
 ├── templates/                             # 可复用模板
 ├── scripts/
 │   ├── lxc_lonely_cat.py                 # 寂寞小猫状态管理
+│   ├── proactive_brain.py                # 陪伴模式素材：阶段、话题轮换、记忆钩子、日历
+│   ├── lonely_cat_short.py               # cron 入口：短程阶段（不唤醒 Agent）
+│   ├── lonely_cat_gate.py                # cron 入口：陪伴模式闸门
 │   └── proactive_state.py                 # 主动提醒辅助工具
 ├── README.md                              # 简体中文说明
 ├── README_EN.md                           # English README
@@ -235,7 +235,11 @@ hybrid-catgirl-skill/
 | 40 分钟 | 第 4 次 | 失落但仍期待 |
 | 50 分钟 | 第 5 次 | 最后一次尝试 |
 
-第五次后，猫猫会停止主动联系，等待用户回来。脚本示例：
+5 条发完用户仍没回复时，进入**陪伴模式**：由 Agent 写消息，每次换一个话题（猫猫自己的日常、天气、小问题、冷知识、一句话小游戏……），偶尔自然地提起 Hermes 记忆里用户的生活小事，并且不重复最近发过的内容。没回复的条数越多，消息越短越轻松、间隔越长（4 小时到 1 天），连续 6 条没回就安静等待；用户一回复全部重置。记忆中的技术配置和亲密内容会被自动过滤，不会出现在主动消息里。
+
+调度只在真的需要发消息时才唤醒 Agent（短程阶段用不耗 Token 的 no-agent 脚本任务，陪伴模式用只读闸门），配置方法见 [`references/lonely-cat-implementation.md`](references/lonely-cat-implementation.md#cronjob-配置)。
+
+脚本示例：
 
 ```bash
 python3 ~/.hermes/scripts/lxc_lonely_cat.py check

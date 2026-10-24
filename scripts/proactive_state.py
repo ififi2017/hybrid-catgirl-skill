@@ -55,7 +55,13 @@ def reserve_slot(
     interval_minutes: int = 240,
     count_key: str = "proactive_count_today",
 ) -> dict[str, Any]:
-    """Reserve a proactive message before generating or sending it."""
+    """Reserve a proactive message slot up front (legacy).
+
+    Prefer taking a short pending lock and recording the message only after it is
+    actually sent (see lxc_lonely_cat.companion_context / companion_sent and
+    references/proactive-cost-control.md): reserving first loses the slot when the
+    Agent fails to send.
+    """
     now = now or datetime.now()
     count = int(state.get(count_key, 0)) + 1
     state[count_key] = count
