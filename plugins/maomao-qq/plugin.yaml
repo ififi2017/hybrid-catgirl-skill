@@ -1,0 +1,6 @@
+name: maomao-qq
+version: "0.4.1"
+description: "Independent QQ transport, group-scoped image understanding and semantic meme library."
+
+requires_plugins:
+  - maomao-companion
