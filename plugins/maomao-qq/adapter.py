@@ -12,6 +12,7 @@ from .transport.adapter import QQAdapter, check_qq_requirements
 from .memes import MemeStore, VISION_SCHEMA, image_input
 from .faces import face_text
 from .recovery import recovery_body, planned_maximum, recovery_anchor
+from .engagement import Engagement, enabled as engagement_enabled, clean as clean_group_text
 from gateway.platforms.base import SendResult
 from maomao_companion.delivery import DeliveryLedger, bubbles, message_ids, response_metadata
 
@@ -25,6 +26,7 @@ def suppressed(content, metadata=None):
 
 
 class MaomaoQQAdapter(QQAdapter):
+    _INBOUND_HANDLERS={**QQAdapter._INBOUND_HANDLERS,'GROUP_MESSAGE_CREATE':'_handle_group_all'}
     plugin_context = None
     auto_memes = None
     _own_requests = {}
@@ -40,6 +42,26 @@ class MaomaoQQAdapter(QQAdapter):
         self._delivery=DeliveryLedger(self._library_root.parent/"maomao-companion/delivery.sqlite3")
         self._send_locks={}
         self._new_collections={}
+        self._engagement=Engagement(self.plugin_context)
+
+    async def _handle_group_all(self,d,msg_id,content,author,timestamp):
+        group=str(d.get('group_openid') or '')
+        uid=str(author.get('member_openid') or '')
+        if not group or not uid or author.get('bot') or not self._is_group_allowed(group,uid):return
+        text=clean_group_text(content,d)
+        version=self._engagement.received(group,msg_id,uid)
+        mentioned=any(isinstance(x,dict) and x.get('is_you') for x in (d.get('mentions') or []))
+        if mentioned:
+            return await self._handle_group_message(d,msg_id,text,author,timestamp)
+        if not text or not engagement_enabled(self.settings(),group):return
+        async def attempt():
+            records=await asyncio.to_thread(MemeStore(self._library_root,group).conversation_context)
+            authorized=lambda:engagement_enabled(self.settings(),group) and self._is_group_allowed(group,uid)
+            if not await self._engagement.decide(group,msg_id,uid,text,version,records,authorized):return
+            if not engagement_enabled(self.settings(),group) or self._engagement.state(group)['version']!=version:return
+            if any((':qqbot:group:'+group) in str(k) for k in getattr(self,'_active_sessions',{})):return
+            await self._handle_group_message(d,msg_id,text,author,timestamp)
+        self._engagement.spawn(attempt())
 
     def _remember_own_request(self,message_id,text,chat_id):
         self._own_requests[(str(chat_id),str(message_id))]=(str(text)[:6000],time.time())
@@ -99,6 +121,8 @@ class MaomaoQQAdapter(QQAdapter):
             if author.get("bot"):
                 return
             if mid:self._delivery.note_receipt("qqbot",chat,str(mid))
+            if mid and is_group and event_type=='GROUP_AT_MESSAGE_CREATE':
+                self._engagement.received(chat,mid,uid)
             images = [a for a in d.get("attachments") or [] if isinstance(a, dict) and str(a.get("content_type", "")).startswith("image/")][:1]
             store = MemeStore(self._library_root, group)
             text = str(d.get("content", "")) or ("[图片]" if images else "")
@@ -131,6 +155,7 @@ class MaomaoQQAdapter(QQAdapter):
             log.info("QQ image description unavailable")
 
     async def _cleanup(self):
+        await self._engagement.close()
         tasks = list(self._enrichment_tasks)+list(self._media_inflight.values())
         for task in tasks:
             task.cancel()
@@ -228,6 +253,7 @@ class MaomaoQQAdapter(QQAdapter):
                         result.raw_response={**(result.raw_response or {}),"partial_overflow":True,"maomao_bubbles":True,"delivered_message_ids":list(dict.fromkeys(delivered))}
                     return result
             result.raw_response={**(result.raw_response or {}),"message_ids":list(dict.fromkeys(delivered)),"maomao_bubbles":True}
+            if self._guess_chat_type(chat_id)=='group':self._engagement.sent(str(chat_id),anchor,content)
             if self.auto_memes and not recovered:
                 self.auto_memes.after_send(self,"qqbot",str(chat_id),anchor,content,result,metadata)
             return result

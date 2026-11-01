@@ -58,6 +58,10 @@ class CompanionContext:
         return self.gate(job["session_key"], job["session_id"])
 
     def gate(self, session_key, session_id=None):
+        cfg=self.config()
+        from .authorization import allowed,standalone
+        if standalone(cfg):
+            return allowed(home(),cfg,session_key,session_id)
         try:
             # Private extensions publish booleans only. This package never imports their code.
             gates = json.loads((self.root/"session-policy.json").read_text())
