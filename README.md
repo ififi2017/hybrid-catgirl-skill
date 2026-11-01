@@ -59,6 +59,7 @@ model:
 ```json
 {
   "enabled": true,
+  "authorization": {"mode": "standalone"},
   "target": {"platform": "feishu", "chat_type": "dm", "chat_id": "YOUR_CHAT_ID", "user_id": "YOUR_USER_ID"},
   "context": {
     "enabled": true,
@@ -71,7 +72,13 @@ model:
 }
 ```
 
-创建 `state/maomao-companion` 后将配置保存为 `config.json`，设置适当的文件访问权限。仅允许在获得参与者授权之后启用外部模型处理。普通私聊记忆、私聊图库与后台浏览还要求宿主发布正确的会话授权状态；**本公开包没有附带该宿主授权提供者**，缺失时会安全地保持关闭。不要手工伪造状态或认为示例配置本身能启用这些功能。QQ 分群记忆另由 `channels` 指定可信平台、群 ID 和类型。
+创建 `state/maomao-companion` 后将配置保存为 `config.json`，设置适当的文件访问权限。`authorization.mode: standalone` 明确开启公开版的私聊授权：只有 Hermes 已准入、与 `target` 的平台、私聊和用户 ID 均匹配的消息才获得 5 分钟的进程内授权；模型白名单与当前会话匹配仍须同时通过。授权不会在进程重启后保留，也不能通过聊天正文取得。移除该选项即回到默认关闭。外部模型处理应先获得参与者授权。
+
+独立授权只用于没有其他会话授权扩展的独立公开 profile；如果当前 profile 已存在 `state/maomao-companion/session-policy.json`，独立授权会保持关闭，避免覆盖宿主的已有隔离策略。不要通过删除该文件绕过现有策略。
+
+如需让同一人的飞书和 Telegram **共享普通记忆与私聊图库**，在配置中增加 `private_members`，分别填写两条平台可信身份（每项包含 `platform`、`chat_type: dm`、`chat_id`、`user_id`）。`target` 仍作为共享作用域的主绑定；不应把不同人的账号绑定到同一作用域。QQ 群和 QQ 私聊不会加入这个作用域。QQ 分群记忆另由 `channels` 指定可信平台、群 ID 和类型。后台浏览仍有独立开关和调度前提，不因启用私聊记忆而自动启动。
+
+可先完成平台配对并发一条测试消息，再在自己的 Hermes profile 的 `sessions/sessions.json` 中查找该会话的 `origin`，核对 `platform`、`chat_type`、`chat_id`、`user_id`；以实际运行版本提供的可信平台元数据为准。这些标识及该文件属于运行数据，保留在本机，不要上传仓库或发进群聊。公开版普通记忆独立保存在当前 profile 的 `state/maomao-companion/` 下。
 
 Embedding 默认关闭。当前实现只接受 `qwen/qwen3-embedding-8b` 或 `baai/bge-m3`、1024 维，使用 OpenRouter 上固定的 DeepInfra 路由；改成不受支持的模型不会生效。启用前确认供应商可用、成本、数据处理约定和相关参与者授权。
 
@@ -91,11 +98,30 @@ image_gen:
 
 QQ 使用独立 profile 和网关，只启用一个 QQ 连接器，不能同时运行内置 QQ 连接器。群内希望各成员共享一段对话，可在该独立 QQ profile 的 `config.yaml` 顶层设置 `group_sessions_per_user: false`；不同群和私聊仍应保持隔离。迁移既有会话前备份配置及状态，核对来源和身份。
 
-`maomao-qq` 本身不包含群内主人身份识别或未 @ 自动接话扩展；这些功能需要另外适配 Hermes 的可信平台身份和消息钩子。不要根据正文声称的身份识别主人。已 @ 的常规收发需依 Hermes 版本和 QQ 官方接口实测。
+先按 Hermes 的 QQ 平台配置方式设置应用凭据（`QQ_APP_ID`、`QQ_CLIENT_SECRET`）、群访问策略及允许的群。QQ 机器人还需要有接收群全部消息的权限，并实际收到 `GROUP_MESSAGE_CREATE`；仅收到 @ 事件时无法判断未 @ 消息。只有取得群内参与者同意后才启用主动判断，因为近期群消息片段会发送给配置的模型：
+
+```json
+{
+  "autonomous": {
+    "enabled": true,
+    "group_messages_to_model": true,
+    "groups": ["YOUR_GROUP_OPENID"]
+  },
+  "vision_enabled": false,
+  "collect_enabled": false,
+  "embedding_enabled": false
+}
+```
+
+将上面的文件保存为该 QQ profile 的 `state/maomao-qq/config.json`。默认不主动接话；三个条件（启用、明确允许发给模型、群在白名单）缺一不可。新话题每群间隔至少 10 分钟、每小时最多 3 次；同一成员对猫猫近期回复的追问可更快判断。为控制模型调用，每群每小时最多判断 60 次（重启后计数重置）。模型判断失败、消息已过时或群里已有进行中的回复时跳过。@ 消息正常进入回复流程。关闭可将 `enabled` 改为 `false`。
+
+QQ 连接器对已准入的群消息会在本地按群保留近期文本观察记录（最多 1000 条、7 天），用于对话上下文；停止主动判断不会自动删除这些记录。请按群内约定管理该 profile 的 `state/maomao-qq/` 数据。
+
+可在 QQ profile 的受保护环境中设置 `QQ_OWNER_OPENID` 为平台提供的主人**成员 openid**，区分主人和群友；这是机器人收到的成员标识，不是可由聊天内容证明的身份。留空时不识别主人。插件在每轮使用准入事件的当前发送者，拒绝仅凭昵称或正文冒充主人；群会话共享时也不复用上一位发言人的身份。
 
 图片识别、收藏、Embedding 分别在 QQ profile 的 `state/maomao-qq/config.json` 中使用 `vision_enabled`、`collect_enabled`、`embedding_enabled` 控制，默认关闭。开始前须配置识图服务、获取参与者授权，并为图库和群聊数据制定保留策略。
 
-`maomao-private` 封装的是已配置的 Hermes 飞书和 Telegram 连接器，并依赖上述宿主授权状态；不要重复启动同一账号的连接器。没有授权状态时，其普通私聊图库和相关记忆功能保持关闭。
+`maomao-private` 封装的是已配置的 Hermes 飞书和 Telegram 连接器；要启用其普通私聊图库，须启用上面的独立授权，并正确绑定对应账号。不要重复启动同一账号的连接器。授权缺失或过期时，私聊图库和相关记忆功能保持关闭。
 
 ## 验证与限制
 

@@ -25,6 +25,10 @@ def register(ctx):
         from .maomao_companion.providers import register as register_providers
         register_providers(ctx)
     companion = CompanionContext(ctx)
+    def authorize_dm(session_key="",source=None,**kwargs):
+        from .maomao_companion.authorization import admit
+        admit(home(),companion.config(),session_key,source)
+    ctx.register_hook("post_gateway_admission",authorize_dm)
     ledger_cache=[]
     def delivery():
         if not ledger_cache: ledger_cache.append(DeliveryLedger(home()/"state/maomao-companion/delivery.sqlite3"))

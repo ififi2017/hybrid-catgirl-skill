@@ -220,7 +220,7 @@ class ContactTests(unittest.TestCase):
         ctx = type("Context", (), {"register_hook": lambda self, name, fn: callbacks.setdefault(name, []).append(fn)})()
         with patch.dict("os.environ", {"HERMES_HOME": self.temp.name}):
             module.register(ctx)
-        hook = callbacks["post_gateway_admission"][0]
+        hook = next(fn for fn in callbacks["post_gateway_admission"] if fn.__name__ == "incoming")
         target = {"platform": "feishu", "chat_id": "chat", "user_id": "owner", "chat_type": "dm"}
         cfg = self.ledger, target, self.scope
         with patch.object(module, "configured", return_value=cfg), patch("time.time", return_value=self.now):
