@@ -31,6 +31,22 @@ def settings(root):
     except (OSError,ValueError,TypeError,AttributeError):return {}
 
 
+def authorized(gateway,source):
+    for name in ('_is_user_authorized_for_source','_is_user_authorized'):
+        method=getattr(gateway,name,None)
+        if callable(method):return bool(method(source))
+    return False
+
+
+def delivery_adapter(gateway,source):
+    # Modern Hermes resolves the receiving transport/profile; older versions
+    # use _adapter_for_source. A missing adapter must not fall back across profiles.
+    for name in ('_delivery_adapter_for','_adapter_for_source'):
+        method=getattr(gateway,name,None)
+        if callable(method):return method(source)
+    return None
+
+
 def response(source):
     if getattr(source,'is_bot',False):return None
     platform=getattr(getattr(source,'platform',None),'value',getattr(source,'platform',None))
@@ -69,9 +85,9 @@ class IdentityLookup:
         source=getattr(event,'source',None);answer=response(source)
         if not answer:return
         try:
-            admitted=bool(gateway._is_user_authorized(source))
+            admitted=authorized(gateway,source)
             if not admitted and cfg.get('allow_unpaired_lookup') is not True:return
-            adapter=gateway._adapter_for_source(source)
+            adapter=delivery_adapter(gateway,source)
             if adapter is None or not self.allowed(source):return {'action':'skip','reason':'identity lookup unavailable or rate limited'}
             anchor=getattr(event,'message_id',None)
             async def deliver():

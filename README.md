@@ -114,6 +114,12 @@ image_gen:
 
 飞书、Telegram 私聊的主人绑定使用前面介绍的 `target` 和 `private_members`：将 `/sid` 返回的用户 ID 写入 `user_id`，会话 ID 写入 `chat_id`，对应平台写入 `platform`。只有管理员编辑配置才能绑定；不同平台 ID 不可互换。
 
+### 查看状态
+
+已通过 Hermes 授权的用户可在私聊发送 `/status`，或在群里 @机器人发送 `/status`。命令使用 Hermes 当前会话的状态数据，显示模型、上下文占用和会话状态；占用可能是估算值。财务相关额度只在已绑定主人的私聊中显示，不会发到群聊。
+
+OpenRouter 密钥限额来自 `OPENROUTER_API_KEY` 对应的只读 `/api/v1/key` 接口。未设置密钥限额不等于账户余额无限。账户余额使用 `/api/v1/credits`：如果当前密钥无权限，可以在服务器受保护环境中单独设置 `MAOMAO_OPENROUTER_MANAGEMENT_KEY`；不要把密钥写进配置文件或仓库。请求失败或其他提供商不支持时会显示不可用，具体额度以提供商控制台为准。额度查询不经过聊天模型。
+
 QQ 使用独立 profile 和网关，只启用一个 QQ 连接器，不能同时运行内置 QQ 连接器。群内希望各成员共享一段对话，可在该独立 QQ profile 的 `config.yaml` 顶层设置 `group_sessions_per_user: false`；不同群和私聊仍应保持隔离。迁移既有会话前备份配置及状态，核对来源和身份。
 
 先按 Hermes 的 QQ 平台配置方式设置应用凭据（`QQ_APP_ID`、`QQ_CLIENT_SECRET`）、群访问策略及允许的群。QQ 机器人还需要有接收群全部消息的权限，并实际收到 `GROUP_MESSAGE_CREATE`；仅收到 @ 事件时无法判断未 @ 消息。只有取得群内参与者同意后才启用主动判断，因为近期群消息片段会发送给配置的模型：

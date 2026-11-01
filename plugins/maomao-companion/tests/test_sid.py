@@ -50,3 +50,16 @@ class IdentityLookupTests(unittest.IsolatedAsyncioTestCase):
         self.lookup.hook(event=self.event(source=source),gateway=self.gateway)
         await asyncio.gather(*list(self.lookup.tasks))
         self.assertIn('ou_test',self.out[0][1]);self.assertIn('union_test',self.out[0][1]);self.assertNotIn('member-a',self.out[0][1])
+    async def test_new_gateway_uses_delivery_adapter_for_current_source(self):
+        source=SimpleNamespace(platform='feishu',chat_type='dm',chat_id='oc_test',user_id='ou_test',user_id_alt=None)
+        sent=[]
+        async def send(chat,text,reply_to=None):sent.append((chat,text,reply_to))
+        gateway=SimpleNamespace(_is_user_authorized_for_source=lambda s:True,_delivery_adapter_for=lambda s:SimpleNamespace(send=send))
+        result=self.lookup.hook(event=self.event(source=source),gateway=gateway)
+        self.assertEqual(result['action'],'skip')
+        await asyncio.gather(*list(self.lookup.tasks))
+        self.assertEqual(sent[0][0],'oc_test');self.assertIn('ou_test',sent[0][1])
+    async def test_missing_adapter_fails_closed(self):
+        gateway=SimpleNamespace(_is_user_authorized_for_source=lambda s:True)
+        self.assertEqual(self.lookup.hook(event=self.event(),gateway=gateway)['action'],'skip')
+        self.assertEqual(self.out,[])
