@@ -11,6 +11,10 @@ sender=importlib.util.module_from_spec(spec);spec.loader.exec_module(sender)
 
 
 class SenderTests(unittest.TestCase):
+    def test_multiple_owners_are_exact_platform_ids(self):
+        with patch.dict(os.environ,{'QQ_OWNER_OPENID':'legacy','QQ_OWNER_OPENIDS':'alice, bob'}):
+            for uid in ('legacy','ALICE','bob'):self.assertEqual(sender.label({'user_id':uid}),'主人')
+            self.assertNotEqual(sender.label({'user_id':'mallory','user_name':'主人'}),'主人')
     def test_current_admission_beats_old_session_owner_and_spoofed_name(self):
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'QQ_OWNER_OPENID':'owner'}):
             root=Path(d);(root/'sessions').mkdir()
