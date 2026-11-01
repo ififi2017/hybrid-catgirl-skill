@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.env
+auth.json
+state/
+sessions/
+*.sqlite3*

@@ -1,0 +1,5 @@
+name: maomao-private
+version: "0.8.0"
+description: "Private-channel natural bubbles, explicit voice consent and shared ordinary media library."
+requires_plugins:
+  - maomao-companion
