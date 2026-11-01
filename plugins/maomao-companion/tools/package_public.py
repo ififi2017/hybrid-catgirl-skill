@@ -5,7 +5,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = (
-    "persona.md", "maomao_companion/persona.py", "tests/test_persona.py", "maomao_companion/authorization.py", "tests/test_authorization.py",
+    "persona.md", "maomao_companion/persona.py", "tests/test_persona.py", "maomao_companion/authorization.py", "tests/test_authorization.py", "maomao_companion/sid.py", "tests/test_sid.py", "maomao_companion/status.py", "tests/test_status.py",
     "__init__.py", "plugin.yaml", "README.md", "ARCHITECTURE.md", ".gitignore",
     "maomao_companion/__init__.py", "maomao_companion/contact.py",
     "maomao_companion/runtime.py", "maomao_companion/legacy.py",

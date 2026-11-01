@@ -25,6 +25,14 @@ def register(ctx):
         from .maomao_companion.providers import register as register_providers
         register_providers(ctx)
     companion = CompanionContext(ctx)
+    from .maomao_companion.sid import IdentityLookup
+    sid=IdentityLookup(home())
+    ctx.register_hook("pre_gateway_dispatch",sid.hook)
+    if hasattr(ctx,"on_unload"):ctx.on_unload(sid.close)
+    from .maomao_companion.status import StatusLookup
+    status=StatusLookup(home())
+    ctx.register_hook("pre_gateway_dispatch",status.hook)
+    if hasattr(ctx,"on_unload"):ctx.on_unload(status.close)
     def authorize_dm(session_key="",source=None,**kwargs):
         from .maomao_companion.authorization import admit
         admit(home(),companion.config(),session_key,source)

@@ -15,6 +15,7 @@ from .recovery import recovery_body, planned_maximum, recovery_anchor
 from .engagement import Engagement, enabled as engagement_enabled, clean as clean_group_text
 from gateway.platforms.base import SendResult
 from maomao_companion.delivery import DeliveryLedger, bubbles, message_ids, response_metadata
+from maomao_companion.sid import IdentityLookup, is_sid, settings as sid_settings, response as sid_response, strip_qq_mention
 
 log = logging.getLogger(__name__)
 NOTICE = re.compile(r"^(?:💾\s*Self-improvement review:|Gateway (?:restarting|shutting down|started)|(?:🔄|⚠️|🛑|✅)\s*(?:Hermes\s+)?Gateway\b|☤ \*\*Update Needs Your Input|\[INTERNAL NOTIFICATION)", re.I)
@@ -43,6 +44,7 @@ class MaomaoQQAdapter(QQAdapter):
         self._send_locks={}
         self._new_collections={}
         self._engagement=Engagement(self.plugin_context)
+        self._sid_lookup=IdentityLookup(self._library_root.parent.parent)
 
     async def _handle_group_all(self,d,msg_id,content,author,timestamp):
         group=str(d.get('group_openid') or '')
@@ -108,6 +110,26 @@ class MaomaoQQAdapter(QQAdapter):
             self._vision_seen[mid] = True
             if len(self._vision_seen) > 256:
                 self._vision_seen.pop(next(iter(self._vision_seen)))
+        # Optional one-command bootstrap before adapter ACL: never admit a chat turn
+        # or let the requester change permissions. Requires a direct message or @.
+        if isinstance(d,dict) and mid and event_type in {'C2C_MESSAGE_CREATE','GROUP_AT_MESSAGE_CREATE','GROUP_MESSAGE_CREATE'}:
+            cfg=sid_settings(self._library_root.parent.parent)
+            author=d.get('author') if isinstance(d.get('author'),dict) else {}
+            is_group=bool(d.get('group_openid'))
+            mentioned=event_type=='GROUP_AT_MESSAGE_CREATE' or any(isinstance(x,dict) and x.get('is_you') for x in (d.get('mentions') or []))
+            raw=str(d.get('content') or '')
+            stripped=strip_qq_mention(raw,d.get('mentions'),event_type=='GROUP_AT_MESSAGE_CREATE')
+            uid=str((author.get('member_openid') if is_group else author.get('user_openid')) or '')
+            chat=str(d.get('group_openid') or uid)
+            if cfg.get('sid_enabled',True) is True and cfg.get('allow_unpaired_lookup') is True and not author.get('bot') and (not is_group or mentioned) and is_sid(stripped) and not d.get('attachments') and d.get('message_type') not in (103,'103') and uid and chat:
+                from types import SimpleNamespace
+                source=SimpleNamespace(platform='qqbot',chat_type='group' if is_group else 'dm',chat_id=chat,user_id=uid,user_id_alt=None)
+                answer=sid_response(source)
+                if answer and self._sid_lookup.allowed(source):
+                    self._delivery.note_receipt('qqbot',chat,str(mid))
+                    self._chat_type_map[chat]='group' if is_group else 'c2c'
+                    await self.send(chat,answer,reply_to=str(mid))
+                return
         if isinstance(d, dict) and (d.get("group_openid") or event_type=="C2C_MESSAGE_CREATE"):
             author = d.get("author") or {}
             is_group=bool(d.get("group_openid"))
